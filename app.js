@@ -2,6 +2,7 @@
 
 var STORAGE_KEY = 'exec_os_v2_data';
 var CURRENT_WORK_LIMIT = 5;
+window.CURRENT_WORK_LIMIT = CURRENT_WORK_LIMIT;
 var SAVE_INDICATOR_MS = 2200;
 
 var LANE_LABELS = {
@@ -63,7 +64,8 @@ var state = {
     autoArchiveDone: true,
     archiveAfterDays: 7
   },
-  history: []
+  history: [],
+  operatingMode: 'operations'
 };
 
 var draggedTaskId = null;
@@ -131,6 +133,59 @@ function applyParsedTaskFields(task, parsed) {
     task.tags = parsed.tags.slice();
   }
 }
+
+function enrichAllTasks() {
+  if (!window.TaskModel) return;
+  ['queue', 'now', 'waiting', 'done'].forEach(function (laneKey) {
+    state.tasks[laneKey].forEach(function (task) {
+      window.TaskModel.enrichTask(task, laneKey);
+    });
+  });
+}
+
+function getRibbonUpdateOptions() {
+  return {
+    currentWorkLimit: CURRENT_WORK_LIMIT,
+    mode: state.operatingMode || 'operations',
+  };
+}
+
+function buildSnapshotIntelligence(executionScore) {
+  if (window.DailyLog && window.DailyLog.buildSnapshotRecord) {
+    return window.DailyLog.buildSnapshotRecord(state.tasks, getRibbonUpdateOptions(), executionScore);
+  }
+
+  return {
+    briefingIntel: {
+      capturedAt: new Date().toISOString(),
+      mission: state.mission || '',
+      healthy: true,
+      systemHealth: { healthy: true, label: 'Healthy', summary: '', signalCount: 0 },
+    },
+    dailyLog: {
+      headline: 'Mission achieved: No briefing data. Top risk remaining: None. System health: Healthy.',
+      metricsLine: '',
+    },
+  };
+}
+
+function applyMode(mode) {
+  if (!window.OperationalModes || !window.OperationalModes.isValidMode(mode)) {
+    return;
+  }
+
+  state.operatingMode = mode;
+  window.OperationalModes.applyMode(mode);
+
+  if (window.ModeSelector) {
+    window.ModeSelector.sync(mode);
+  }
+
+  renderBoard();
+  saveToLocalStorage();
+}
+
+window.applyMode = applyMode;
 
 function showSaveIndicator() {
   var el = document.getElementById('save-status');
@@ -264,7 +319,8 @@ function getDefaultState() {
       autoArchiveDone: true,
       archiveAfterDays: 7
     },
-    history: []
+    history: [],
+    operatingMode: 'operations'
   }));
 }
 
@@ -285,7 +341,10 @@ function loadFromLocalStorage() {
         { autoArchiveDone: true, archiveAfterDays: 7 },
         parsed.settings || {}
       ),
-      history: Array.isArray(parsed.history) ? parsed.history : []
+      history: Array.isArray(parsed.history) ? parsed.history : [],
+      operatingMode: window.OperationalModes && window.OperationalModes.isValidMode(parsed.operatingMode)
+        ? parsed.operatingMode
+        : 'operations'
     });
     if (!state.tasks.queue) {
       state.tasks.queue = [];
@@ -514,6 +573,8 @@ function scrollToTask(taskId) {
   }, 1600);
 }
 
+window.scrollToTask = scrollToTask;
+
 function formatLogLine(taskName, message) {
   var last = message.split(' → ').pop().trim();
 
@@ -556,6 +617,16 @@ function formatSnapshotDayLabel(dateKey) {
 }
 
 function buildSnapshotSummary(snap) {
+  if (snap.dailyLog && snap.dailyLog.headline) {
+    return {
+      headline: snap.dailyLog.headline,
+      metricsLine: snap.dailyLog.metricsLine || '',
+      objective: snap.dailyLog.objective || null,
+      modeLabel: snap.dailyLog.modeLabel || (snap.briefingIntel && snap.briefingIntel.modeLabel) || null,
+      legacy: false,
+    };
+  }
+
   var score = snap.executionScore || {};
   var completed = score.completedToday != null ? score.completedToday : (snap.tasks.done ? snap.tasks.done.length : 0);
   var carried = (snap.tasks.queue ? snap.tasks.queue.length : 0) + snap.tasks.waiting.length;
@@ -590,11 +661,12 @@ function buildSnapshotSummary(snap) {
   }
 
   return {
+    legacy: true,
     completed: completed,
     carried: carried,
     focusArea: focusArea,
     blocker: blocker,
-    metricsSummary: metricsSummary
+    metricsSummary: metricsSummary,
   };
 }
 
@@ -776,7 +848,7 @@ function setupTaskBoardDelegation() {
   });
 
   board.addEventListener('mousedown', function (e) {
-    if (e.target.closest('.delete-btn, [contenteditable="true"]')) {
+    if (e.target.closest('.delete-btn, [contenteditable="true"], .task-command-strip__status')) {
       e.stopPropagation();
     }
   });
@@ -832,6 +904,10 @@ function setupTaskBoardDelegation() {
 }
 
 function buildTaskCard(task, laneKey) {
+  if (window.TaskModel) {
+    window.TaskModel.enrichTask(task, laneKey);
+  }
+
   var card = document.createElement('div');
   card.className = 'task-card glass' + (task.focused ? ' is-focused' : '');
   card.draggable = true;
@@ -968,6 +1044,17 @@ function buildTaskCard(task, laneKey) {
   card.appendChild(main);
   appendTaskMetaBadges(card, task);
 
+  if (window.TaskCommandStrip && laneKey !== 'done') {
+    var commandStrip = window.TaskCommandStrip.build(task, laneKey, card);
+    if (commandStrip) {
+      card.appendChild(commandStrip);
+    }
+  }
+
+  card.dataset.readiness = task.readiness || '';
+  card.dataset.impact = task.impact || '';
+  card.dataset.nextAction = task.nextAction || '';
+
   if (laneKey === 'done') {
     if (task.elapsedMinutes != null) {
       var elapsed = document.createElement('div');
@@ -991,6 +1078,21 @@ window.updateTaskText = function (lane, id, newText) {
   var task = state.tasks[lane].find(function (t) { return t.id === id; });
   if (!task || task.text === newText) return;
   task.text = newText;
+  if (window.TaskModel) {
+    window.TaskModel.enrichTask(task, lane);
+  }
+  var card = document.querySelector('.task-card[data-id="' + id + '"]');
+  if (card) {
+    card.dataset.readiness = task.readiness || '';
+    card.dataset.impact = task.impact || task.businessImpact || '';
+    card.dataset.nextAction = task.nextAction || '';
+    if (window.TaskCommandStrip) {
+      window.TaskCommandStrip.sync(card, task, lane);
+    }
+  }
+  if (window.StatusRibbon) {
+    window.StatusRibbon.update(state.tasks, getRibbonUpdateOptions());
+  }
   saveToLocalStorage();
 };
 
@@ -998,6 +1100,21 @@ window.updateTaskContext = function (lane, id, newContext) {
   var task = state.tasks[lane].find(function (t) { return t.id === id; });
   if (!task || task.context === newContext) return;
   task.context = newContext;
+  if (window.TaskModel) {
+    window.TaskModel.enrichTask(task, lane);
+  }
+  var card = document.querySelector('.task-card[data-id="' + id + '"]');
+  if (card) {
+    card.dataset.readiness = task.readiness || '';
+    card.dataset.impact = task.impact || task.businessImpact || '';
+    card.dataset.nextAction = task.nextAction || '';
+    if (window.TaskCommandStrip) {
+      window.TaskCommandStrip.sync(card, task, lane);
+    }
+  }
+  if (window.StatusRibbon) {
+    window.StatusRibbon.update(state.tasks, getRibbonUpdateOptions());
+  }
   saveToLocalStorage();
 };
 
@@ -1020,35 +1137,28 @@ function renderLane(laneKey, elementId) {
 }
 
 function renderBoard() {
+  enrichAllTasks();
   renderLane('queue', 'list-queue');
   renderLane('now', 'list-now');
   renderLane('waiting', 'list-waiting');
   renderLane('done', 'list-done');
   updateMetrics();
+  if (window.OperationsBriefing) {
+    window.OperationsBriefing.update(state.tasks, getRibbonUpdateOptions(), state);
+  }
+  if (window.StatusRibbon) {
+    window.StatusRibbon.update(state.tasks, getRibbonUpdateOptions());
+  }
   renderSnapshots();
   updateHistoryMeta();
   saveToLocalStorage();
 }
 
 function syncMissionFieldsToDOM() {
-  document.getElementById('directive-display').textContent = state.mission;
-
-  var list = document.getElementById('mission-targets-list');
-  list.innerHTML = '';
-  state.targets.split('\n').filter(Boolean).forEach(function (line) {
-    var li = document.createElement('li');
-    li.textContent = line.replace(/^[\s•\-]+/, '');
-    list.appendChild(li);
-  });
-}
-
-function syncMissionFieldsFromDOM() {
-  state.mission = document.getElementById('directive-display').innerText.trim();
-  var items = Array.prototype.map.call(
-    document.querySelectorAll('#mission-targets-list li'),
-    function (li) { return li.innerText.trim(); }
-  ).filter(Boolean);
-  state.targets = items.join('\n');
+  if (window.OperationsBriefing) {
+    window.OperationsBriefing.update(state.tasks, getRibbonUpdateOptions(), state);
+    return;
+  }
 }
 
 function parseMetricValue(raw, fallback) {
@@ -1161,23 +1271,51 @@ function renderSnapshotPreview() {
   title.textContent = formatSnapshotDayLabel(state.selectedSnapshotDate);
   wrap.appendChild(title);
 
-  var lines = [];
-  if (summary.metricsSummary) {
-    lines.push(summary.metricsSummary);
-  }
-  lines.push(
-    '✓ ' + summary.completed + ' completed',
-    '✓ ' + summary.carried + ' carried over',
-    'Most time spent: ' + summary.focusArea,
-    'Biggest blocker: ' + summary.blocker
-  );
+  if (!summary.legacy) {
+    if (summary.modeLabel) {
+      var modeTag = document.createElement('div');
+      modeTag.className = 'snapshot-summary-mode';
+      modeTag.textContent = summary.modeLabel;
+      wrap.appendChild(modeTag);
+    }
 
-  lines.forEach(function (text, index) {
-    var line = document.createElement('div');
-    line.className = 'snapshot-summary-line' + (index >= (summary.metricsSummary ? 3 : 2) ? ' is-highlight' : '');
-    line.textContent = text;
-    wrap.appendChild(line);
-  });
+    var logLine = document.createElement('p');
+    logLine.className = 'snapshot-daily-log';
+    logLine.textContent = summary.headline;
+    wrap.appendChild(logLine);
+
+    if (summary.metricsLine) {
+      var metrics = document.createElement('div');
+      metrics.className = 'snapshot-summary-metrics';
+      metrics.textContent = summary.metricsLine;
+      wrap.appendChild(metrics);
+    }
+
+    if (summary.objective) {
+      var objective = document.createElement('div');
+      objective.className = 'snapshot-summary-objective';
+      objective.textContent = 'Objective: ' + summary.objective;
+      wrap.appendChild(objective);
+    }
+  } else {
+    var lines = [];
+    if (summary.metricsSummary) {
+      lines.push(summary.metricsSummary);
+    }
+    lines.push(
+      '✓ ' + summary.completed + ' completed',
+      '✓ ' + summary.carried + ' carried over',
+      'Most time spent: ' + summary.focusArea,
+      'Biggest blocker: ' + summary.blocker
+    );
+
+    lines.forEach(function (text, index) {
+      var line = document.createElement('div');
+      line.className = 'snapshot-summary-line' + (index >= (summary.metricsSummary ? 3 : 2) ? ' is-highlight' : '');
+      line.textContent = text;
+      wrap.appendChild(line);
+    });
+  }
 
   box.appendChild(wrap);
 }
@@ -1186,6 +1324,9 @@ function saveSnapshot() {
   var key = todayKey();
   var existing = state.snapshots[key];
   endFocusSession();
+  var executionScore = buildExecutionScore();
+  var intelligence = buildSnapshotIntelligence(executionScore);
+
   state.snapshots[key] = {
     mission: state.mission,
     targets: state.targets,
@@ -1193,7 +1334,9 @@ function saveSnapshot() {
     tasks: JSON.parse(JSON.stringify(state.tasks)),
     savedAt: new Date().toISOString(),
     archivedDone: existing && existing.archivedDone ? existing.archivedDone : [],
-    executionScore: buildExecutionScore()
+    executionScore: executionScore,
+    briefingIntel: intelligence.briefingIntel,
+    dailyLog: intelligence.dailyLog,
   };
   state.selectedSnapshotDate = key;
   logActivity('Saved daily snapshot for ' + key, null, 'system');
@@ -1251,6 +1394,7 @@ function startNewDay() {
 
   endFocusSession();
   var executionScore = buildExecutionScore();
+  var intelligence = buildSnapshotIntelligence(executionScore);
 
   if (!existing) {
     state.snapshots[key] = {
@@ -1260,7 +1404,9 @@ function startNewDay() {
       tasks: JSON.parse(JSON.stringify(state.tasks)),
       savedAt: new Date().toISOString(),
       archivedDone: [archiveBatch],
-      executionScore: executionScore
+      executionScore: executionScore,
+      briefingIntel: intelligence.briefingIntel,
+      dailyLog: intelligence.dailyLog,
     };
   } else {
     if (!existing.archivedDone) {
@@ -1271,6 +1417,8 @@ function startNewDay() {
     existing.ticketStatus = JSON.parse(JSON.stringify(state.ticketStatus));
     existing.savedAt = new Date().toISOString();
     existing.executionScore = executionScore;
+    existing.briefingIntel = intelligence.briefingIntel;
+    existing.dailyLog = intelligence.dailyLog;
   }
 
   state.tasks.done = [];
@@ -1365,7 +1513,10 @@ function importStateFromFile(file) {
           { autoArchiveDone: true, archiveAfterDays: 7 },
           parsed.settings || {}
         ),
-        history: Array.isArray(parsed.history) ? parsed.history : []
+        history: Array.isArray(parsed.history) ? parsed.history : [],
+        operatingMode: window.OperationalModes && window.OperationalModes.isValidMode(parsed.operatingMode)
+          ? parsed.operatingMode
+          : 'operations'
       });
 
       ['queue', 'now', 'waiting', 'done'].forEach(function (lane) {
@@ -1377,6 +1528,13 @@ function importStateFromFile(file) {
       ensureSettings();
       backfillWaitingSince();
       backfillCompletedAt();
+      enrichAllTasks();
+      if (window.OperationalModes) {
+        window.OperationalModes.setActiveMode(state.operatingMode);
+      }
+      if (window.ModeSelector) {
+        window.ModeSelector.sync(state.operatingMode);
+      }
       syncMissionFieldsToDOM();
       syncTicketStatusToDOM();
       syncSettingsToDOM();
@@ -1446,6 +1604,7 @@ function loadSnapshot(dateKey) {
   }
   state.selectedSnapshotDate = dateKey;
   backfillWaitingSince();
+  enrichAllTasks();
 
   syncMissionFieldsToDOM();
   syncTicketStatusToDOM();
@@ -1460,10 +1619,15 @@ function addTask(lane, rawInput) {
   var task = { id: uid(), text: parsed.text, focused: false };
   applyParsedTaskFields(task, parsed);
 
+  if (window.TaskModel) {
+    window.TaskModel.enrichTask(task, lane);
+  }
+
   if (lane === 'now') {
     task.startTime = Date.now();
     incrementDailyStarted();
   }
+
   state.tasks[lane].push(task);
   logActivity('Added to ' + LANE_LABELS[lane], parsed.text, 'work', task.id);
   renderBoard();
@@ -1515,6 +1679,9 @@ function addWaitingTask(raw) {
     context: reason,
     waitingSince: Date.now()
   };
+  if (window.TaskModel) {
+    window.TaskModel.enrichTask(task, 'waiting');
+  }
   state.tasks.waiting.push(task);
 
   logActivity('Added to Waiting', name, 'work', task.id);
@@ -1548,6 +1715,9 @@ function addWaitingTaskFromForm() {
   };
   if (expectedBy) {
     task.expectedBy = expectedBy;
+  }
+  if (window.TaskModel) {
+    window.TaskModel.enrichTask(task, 'waiting');
   }
   state.tasks.waiting.push(task);
 
@@ -1640,6 +1810,9 @@ function moveTask(sourceLane, targetLane, taskId) {
     logActivity('Moved to ' + LANE_LABELS[targetLane], task.text, 'work', task.id);
   }
 
+  if (window.TaskModel) {
+    window.TaskModel.enrichTask(task, targetLane);
+  }
   state.tasks[targetLane].push(task);
   renderBoard();
 }
@@ -1743,16 +1916,6 @@ function setupEventListeners() {
     addWaitingTaskFromForm();
   });
 
-  document.getElementById('directive-display').addEventListener('blur', function () {
-    syncMissionFieldsFromDOM();
-    saveToLocalStorage();
-  });
-
-  document.getElementById('mission-targets-list').addEventListener('blur', function () {
-    syncMissionFieldsFromDOM();
-    saveToLocalStorage();
-  });
-
   document.querySelectorAll('.queue-metric-value').forEach(function (el) {
     el.addEventListener('blur', function () {
       syncTicketStatusFromDOM();
@@ -1835,7 +1998,9 @@ function setupKeyboardShortcuts() {
         break;
       case '/':
         e.preventDefault();
-        document.getElementById('directive-display').focus();
+        if (window.OperationsBriefing && document.getElementById('operations-briefing')) {
+          document.getElementById('operations-briefing').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
         break;
       case 'd':
         e.preventDefault();
@@ -1851,8 +2016,21 @@ document.addEventListener('DOMContentLoaded', function () {
   loadFromLocalStorage();
   backfillWaitingSince();
   backfillCompletedAt();
+  enrichAllTasks();
+  if (window.OperationsBriefing) {
+    window.OperationsBriefing.init();
+  }
+  if (window.OperationalModes) {
+    window.OperationalModes.setActiveMode(state.operatingMode || 'operations');
+  }
+  if (window.ModeSelector) {
+    window.ModeSelector.init(applyMode);
+    window.ModeSelector.sync(state.operatingMode || 'operations');
+  }
+  if (window.StatusRibbon) {
+    window.StatusRibbon.init();
+  }
   purgeStaleDoneTasks();
-  syncMissionFieldsToDOM();
   syncTicketStatusToDOM();
   syncSettingsToDOM();
   setupEventListeners();
