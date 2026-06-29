@@ -28,83 +28,88 @@
     </header>
 
     <main class="board-container app-glass-canvas">
+      <section class="status-ribbon glass-panel" id="status-ribbon" aria-label="Operational awareness">
+        <div class="status-ribbon__content">
+          <div class="status-ribbon__item status-ribbon__item--risks" id="status-ribbon-risks">
+            <span class="status-ribbon__label">Active Risks</span>
+            <span class="status-ribbon__value" id="ribbon-active-risks" aria-live="polite">0</span>
+            <span class="status-ribbon__hint">Blocked items</span>
+          </div>
+          <div class="status-ribbon__divider" aria-hidden="true"></div>
+          <div class="status-ribbon__item status-ribbon__item--action">
+            <span class="status-ribbon__label">Next Meaningful Action</span>
+            <button type="button" class="status-ribbon__action" id="ribbon-next-action" disabled>
+              <span class="status-ribbon__action-text" id="ribbon-next-action-text">—</span>
+              <span class="status-ribbon__action-meta" id="ribbon-next-action-meta"></span>
+            </button>
+          </div>
+          <div class="status-ribbon__divider" aria-hidden="true"></div>
+          <div class="status-ribbon__item status-ribbon__item--health" id="status-ribbon-health">
+            <span class="status-ribbon__label">System Health</span>
+            <span class="status-ribbon__value status-ribbon__value--health" id="ribbon-system-health" aria-live="polite">Healthy</span>
+            <span class="status-ribbon__hint" id="ribbon-system-health-detail">All signals clear</span>
+          </div>
+        </div>
+        <div class="mode-selector" id="mode-selector"></div>
+      </section>
+
       <section class="widget-row" aria-label="Execution overview">
-        <div class="glass-panel mission-card">
-          <div class="widget-header mission-section-label">Today's Mission</div>
-          <div
-            class="editable-mission"
-            contenteditable="true"
-            id="directive-display"
-            spellcheck="true"
-            role="textbox"
-            aria-label="Core objective"
-          >Complete Mobility Reconciliation</div>
-          <div class="mission-targets">
-            <div class="target-title">Targets</div>
-            <ul
-              class="target-list"
-              contenteditable="true"
-              id="mission-targets-list"
-              aria-label="Active targets"
-            >
-              <li>Finish reconciliation</li>
-              <li>Update inventory</li>
-            </ul>
+        <div class="glass-panel operations-briefing" id="operations-briefing" aria-label="Operations briefing command center">
+          <div class="operations-briefing__header">
+            <span class="operations-briefing__label">Operations Briefing</span>
+            <span class="operations-briefing__mode-tag" id="briefing-mode-tag">Operations</span>
           </div>
-          <div class="mission-metrics" aria-label="How is today going?">
-            <div class="target-title">Mission Metrics</div>
-            <ul class="mission-metrics-grid">
-              <li class="mission-metric">
-                <span class="mission-metric-value" id="metric-planned">0</span>
-                <span class="mission-metric-label">Planned</span>
+          <h2 class="operations-briefing__mission" id="briefing-mission" aria-live="polite">
+            Operations command — Maintain execution velocity
+          </h2>
+          <div class="operations-briefing__grid">
+            <article class="briefing-item">
+              <span class="briefing-item__label">Top Objective</span>
+              <button type="button" class="briefing-item__value" id="briefing-top-objective" disabled>
+                No ready high-impact work
+              </button>
+              <span class="briefing-item__meta" id="briefing-top-objective-meta"></span>
+            </article>
+            <article class="briefing-item briefing-item--risk">
+              <span class="briefing-item__label">Biggest Risk</span>
+              <button type="button" class="briefing-item__value" id="briefing-biggest-risk" disabled>
+                No blocked business risk
+              </button>
+              <span class="briefing-item__meta" id="briefing-biggest-risk-meta"></span>
+            </article>
+            <article class="briefing-item briefing-item--bottleneck">
+              <span class="briefing-item__label">Bottleneck</span>
+              <button type="button" class="briefing-item__value" id="briefing-bottleneck" disabled>
+                No aging bottleneck
+              </button>
+              <span class="briefing-item__meta" id="briefing-bottleneck-meta"></span>
+            </article>
+          </div>
+          <div class="operations-briefing__footer">
+            <ul class="operations-briefing__metrics" aria-label="Mission metrics">
+              <li class="operations-briefing__metric">
+                <span class="operations-briefing__metric-value" id="metric-planned">0</span>
+                <span class="operations-briefing__metric-label">Planned</span>
               </li>
-              <li class="mission-metric">
-                <span class="mission-metric-value" id="metric-completed">0</span>
-                <span class="mission-metric-label">Completed</span>
+              <li class="operations-briefing__metric">
+                <span class="operations-briefing__metric-value" id="metric-completed">0</span>
+                <span class="operations-briefing__metric-label">Completed</span>
               </li>
-              <li class="mission-metric">
-                <span class="mission-metric-value" id="metric-in-progress">0</span>
-                <span class="mission-metric-label">In Progress</span>
+              <li class="operations-briefing__metric">
+                <span class="operations-briefing__metric-value" id="metric-in-progress">0</span>
+                <span class="operations-briefing__metric-label">In Progress</span>
               </li>
-              <li class="mission-metric">
-                <span class="mission-metric-value" id="metric-waiting">0</span>
-                <span class="mission-metric-label">Waiting</span>
+              <li class="operations-briefing__metric">
+                <span class="operations-briefing__metric-value" id="metric-waiting">0</span>
+                <span class="operations-briefing__metric-label">Waiting</span>
               </li>
-              <li class="mission-metric">
-                <span class="mission-metric-value" id="metric-focus-time">0m</span>
-                <span class="mission-metric-label">Focus Time</span>
+              <li class="operations-briefing__metric">
+                <span class="operations-briefing__metric-value" id="metric-focus-time">0m</span>
+                <span class="operations-briefing__metric-label">Focus</span>
               </li>
             </ul>
+            <div class="operations-briefing__counts" id="mission-sub-counts">0 Queue · 0 Active · 0 Waiting · 0 Done</div>
           </div>
-          <details class="mobility-overview">
-            <summary>Operations Overview</summary>
-            <div class="my-queue" aria-label="Live ticket queue metrics">
-              <ul class="queue-metrics" id="ticket-status-list">
-                <li class="queue-metric">
-                  <span class="queue-metric-value" contenteditable="true" data-metric="active" role="textbox" aria-label="Active tickets">14</span>
-                  <span class="queue-metric-label">Active</span>
-                </li>
-                <li class="queue-metric">
-                  <span class="queue-metric-value" contenteditable="true" data-metric="mobilityRequests" role="textbox" aria-label="Mobility requests">6</span>
-                  <span class="queue-metric-label">Mobility Requests</span>
-                </li>
-                <li class="queue-metric">
-                  <span class="queue-metric-value" contenteditable="true" data-metric="pendingUser" role="textbox" aria-label="Tickets pending user">4</span>
-                  <span class="queue-metric-label">Pending User</span>
-                </li>
-                <li class="queue-metric">
-                  <span class="queue-metric-value" contenteditable="true" data-metric="pendingIT" role="textbox" aria-label="Tickets pending IT">3</span>
-                  <span class="queue-metric-label">Pending IT</span>
-                </li>
-                <li class="queue-metric">
-                  <span class="queue-metric-value" contenteditable="true" data-metric="onHold" role="textbox" aria-label="Tickets on hold">2</span>
-                  <span class="queue-metric-label">On Hold</span>
-                </li>
-              </ul>
-            </div>
-          </details>
-          <hr class="mission-divider">
-          <div class="mission-sub-counts" id="mission-sub-counts">0 Queue · 0 Active · 0 Waiting · 0 Done</div>
         </div>
 
         <div class="glass-panel execution-card execution-card--compact">
@@ -135,7 +140,7 @@
           </div>
           <div class="snapshot-selector-row" id="snapshot-days" role="listbox" aria-label="Snapshot days"></div>
           <div class="snapshot-preview-box" id="snapshot-preview">
-            <span class="placeholder-text">Click a day to load historical snapshot</span>
+            <span class="placeholder-text">Save Today to capture briefing intelligence</span>
           </div>
         </div>
       </section>
@@ -257,7 +262,7 @@
         <li><kbd>W</kbd> Focus Current Work input</li>
         <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> Quick capture</li>
         <li><kbd>F</kbd> Cycle focus task</li>
-        <li><kbd>/</kbd> Edit mission</li>
+        <li><kbd>/</kbd> Scroll to Operations Briefing</li>
         <li><kbd>D</kbd> Scroll to Done lane</li>
         <li><kbd>Ctrl</kbd>+<kbd>,</kbd> Settings &amp; backup</li>
         <li><kbd>?</kbd> Show this help</li>
@@ -309,6 +314,14 @@
     </div>
   </div>
 
+  <script src="js/task-model.js"></script>
+  <script src="js/operational-modes.js"></script>
+  <script src="js/operational-health.js"></script>
+  <script src="js/operations-briefing.js"></script>
+  <script src="js/daily-log.js"></script>
+  <script src="js/mode-selector.js"></script>
+  <script src="js/status-ribbon.js"></script>
+  <script src="js/task-command-strip.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
